@@ -1,0 +1,50 @@
+---
+- hosts: test-srv
+  become: yes
+  become_user: root
+  remote_user: root
+  tasks:
+    
+    - name: check if application is running
+      shell: if ps -eaf | egrep 'apache|httpd'| grep -v grep > /dev/null;then echo "process running";else echo "not running";fi
+      ignore_errors: true
+      register: process_check
+   
+    - name: fail if process running
+      fail: msg="{{ inventory_hostname }} has application running,please stop it"
+      when: process_check.stdout == "process running"
+   
+    - name: upgrade packages if application is stopped
+      yum:
+       name=kernel
+       state=latest
+      when: process_check.stdout == "not running" and ansible_distribution == 'CentOS' or ansible_distribution == 'Red Hat Enterprise Linux'
+      register: yum_update
+
+    - name: check if kernel is updated
+      shell: KERNEL_NEW = $(rpm -q --last kernel | head -1 | awk '{print $1}' | sed 's/kernel-//'); KERNEL_NOW =$(uname -r);if [[$KERNEL_NEW != $KERNEL_NOW]]; then echo "restart_needed";else echo "restart_not_needed";fi
+      ignore_errors: true
+      register: reboot_required
+    
+    - name: restarting the system
+      command: shutdown -r now "Reboot required"
+      async: 0
+      poll: 0
+      become: true
+      when: reboot_required.stdout == "restart_needed"
+      register: reboot_started
+      ignore_errors: true
+
+    - name: pausing for 180 seconds
+      pause:
+        minutes: 3
+
+    - name: checking ssh connection
+      local_action:
+        module: wait_for
+          host = "{{ inventory_hostname }}"
+          port = 22
+          delay = 15
+          timeout = 300
+          state = present 
+      when: reboot_started|changed

@@ -1,0 +1,10 @@
+---
+- hosts: all
+  
+  vars_files:
+     - variable.yml
+
+  tasks:
+    - name: show var
+      debug: 
+        var: var
